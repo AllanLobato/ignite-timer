@@ -1,18 +1,22 @@
-import { createContext, ReactNode, useState } from "react";
+import { differenceInSeconds } from "date-fns";
+import {
+    createContext,
+    ReactNode,
+    useEffect,
+    useReducer,
+    useState,
+} from "react";
+import {
+    ActionTypes,
+    addNewCycleAction,
+    interruptCurrentCycleAction,
+    markCurrentCycleAsFinishedAction,
+} from "../reducers/cycles/actions";
+import { Cycle, cyclesReducer } from "../reducers/cycles/reducer";
 
 interface CreateCycleData {
     task: string;
     minutesAmount: number;
-}
-
-interface Cycle {
-    // os ciclos devem ser identificados por um id
-    id: string;
-    task: string;
-    minutesAmount: number;
-    startDate: Date; // tanto data quanto horario
-    interrupteDate?: Date;
-    finishedDate?: Date;
 }
 
 interface CyclesContextType {
@@ -20,7 +24,7 @@ interface CyclesContextType {
     activeCycle: Cycle | undefined;
     activeCycleId: string | null;
     amountSecondsPassed: number;
-    markCurrentAsFinished: () => void; // void quer dizer que não tem retorno
+    markCurrentCycleAsFinished: () => void; // void quer dizer que não tem retorno
     setSecondsPassed: (seconds: number) => void;
     createNewCycle: (data: CreateCycleData) => void;
     interruptCurrentCycle: () => void;
@@ -33,27 +37,50 @@ interface CycleContextProviderProps {
 }
 
 export function CyclesContextProvider({ children }: CycleContextProviderProps) {
-    children;
-    const [cycles, setCycles] = useState<Cycle[]>([]); // Sempre iniciar o estado com o tipo de informação que vou manusear a aplicação toda
-    const [activeCycleId, setActiveCycleId] = useState<string | null>(null);
-    const [amountSecondsPassed, setAmountSecondsPassed] = useState(0);
+    // const [cycles, setCycles] = useReducer<Cycle[]>([]); // Sempre iniciar o estado com o tipo de informação que vou manusear a aplicação toda
+
+    const [cyclesState, dispatch] = useReducer(
+        cyclesReducer,
+        {
+            cycles: [],
+            activeCycleId: null,
+        },
+        () => {
+            const storedStateAsJSON = localStorage.getItem(
+                "@ignite-timer:cycles-state-1.0.0"
+            );
+            if (storedStateAsJSON) {
+                return JSON.parse(storedStateAsJSON);
+            }
+        }
+    );
+
+    const { cycles, activeCycleId } = cyclesState;
 
     const activeCycle = cycles.find((cycle) => cycle.id === activeCycleId);
+
+    const [amountSecondsPassed, setAmountSecondsPassed] = useState(() => {
+        if (activeCycle) {
+            return differenceInSeconds(
+                new Date(),
+                new Date(activeCycle.startDate)
+            );
+        }
+        return 0;
+    });
+
+    useEffect(() => {
+        const stateJSON = JSON.stringify(cyclesState);
+
+        localStorage.setItem("@ignite-timer:cycles-state-1.0.0", stateJSON);
+    }, [cyclesState]);
 
     function setSecondsPassed(seconds: number) {
         setAmountSecondsPassed(seconds);
     }
 
-    function markCurrentAsFinished() {
-        setCycles((state) =>
-            state.map((cycle) => {
-                if (cycle.id === activeCycleId) {
-                    return { ...cycle, finishedDate: new Date() };
-                } else {
-                    return cycle;
-                }
-            })
-        );
+    function markCurrentCycleAsFinished() {
+        dispatch(markCurrentCycleAsFinishedAction());
     }
 
     function createNewCycle(data: CreateCycleData) {
@@ -66,24 +93,15 @@ export function CyclesContextProvider({ children }: CycleContextProviderProps) {
             startDate: new Date(),
         };
 
-        setCycles((state) => [...state, newCycle]); // Sempre que uma alteração de estado depender do valor anterior, usar arrow function
-        setActiveCycleId(id);
+        dispatch(addNewCycleAction(newCycle));
+
+        // setCycles((state) => [...state, newCycle]); // Sempre que uma alteração de estado depender do valor anterior, usar arrow function
         setAmountSecondsPassed(0);
     }
 
     function interruptCurrentCycle() {
-        // Se o ciclo for o ciclo ativo, eu vou retornar todos os dados do ciclo, porém vou add uma nova informação chamada interruptedDate como sendo a data atual. Seão, retorno o ciclo sem alterações
-
-        setCycles((state) =>
-            state.map((cycle) => {
-                if (cycle.id === activeCycleId) {
-                    return { ...cycle, interrupteDate: new Date() };
-                } else {
-                    return cycle;
-                }
-            })
-        );
-        setActiveCycleId(null);
+        dispatch(interruptCurrentCycleAction());
+        // // Se o ciclo for o ciclo ativo, eu vou retornar todos os dados do ciclo, porém vou add uma nova informação chamada interruptedDate como sendo a data atual. Seão, retorno o ciclo sem alterações
     }
 
     return (
@@ -92,7 +110,7 @@ export function CyclesContextProvider({ children }: CycleContextProviderProps) {
                 cycles,
                 activeCycle,
                 activeCycleId,
-                markCurrentAsFinished,
+                markCurrentCycleAsFinished,
                 amountSecondsPassed,
                 setSecondsPassed,
                 createNewCycle,
